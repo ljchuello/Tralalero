@@ -73,6 +73,10 @@ public sealed class SettingsServiceTests : IDisposable
         Assert.Equal("es", settings.Language);
         Assert.Equal("gpt-transcribe", settings.Model);
         Assert.Equal("https://example.test/v1", settings.ApiBaseUrl);
+
+        settings.ApiBaseUrl = "not a url";
+        settings.Normalize();
+        Assert.Equal("https://api.openai.com/v1", settings.ApiBaseUrl);
     }
 
     public void Dispose()

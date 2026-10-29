@@ -23,8 +23,9 @@ We will acknowledge receipt as soon as possible and coordinate a fix/disclosure.
 
 ## Security model
 
-- The OpenAI API key is encrypted with **Windows DPAPI** (`CurrentUser`) in `%APPDATA%\Tralalero\credentials.bin`.
+- The API key is encrypted with **Windows DPAPI** (`CurrentUser`) in `%APPDATA%\Tralalero\credentials.bin`.
 - Settings never contain the key.
+- Changing the transcription endpoint host clears the stored key so it cannot be forwarded to a different server.
 - Logs contain metadata only; transcript text and key material must never be logged.
 - Audio is memory-only and sent only to the configured OpenAI-compatible endpoint.
 - No telemetry, accounts, or Tralalero servers.

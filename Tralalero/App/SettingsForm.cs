@@ -27,6 +27,7 @@ internal sealed class SettingsForm : Form
     private readonly AppSettings _settings;
 
     private readonly TextBox _keyBox;
+    private readonly TextBox _baseUrlBox;
     private readonly Label _keyStatus;
     private readonly ComboBox _modelCombo;
     private readonly ComboBox _languageCombo;
@@ -64,7 +65,7 @@ internal sealed class SettingsForm : Form
         ShowInTaskbar = false;
         BackColor = Theme.Background;
         Font = Theme.Body;
-        ClientSize = new Size(720, 880);
+        ClientSize = new Size(720, 920);
         AutoScroll = true;
         Padding = new Padding(24);
 
@@ -81,7 +82,7 @@ internal sealed class SettingsForm : Form
         root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
 
         var apiGrid = CreateGrid();
-        var apiCard = CreateCard("🔑 OpenAI account", apiGrid);
+        var apiCard = CreateCard("🌐 Endpoint & API key", apiGrid);
 
         _keyBox = new TextBox
         {
@@ -115,23 +116,35 @@ internal sealed class SettingsForm : Form
         testButton.Click += TestKeyClicked;
         var removeButton = CreateSecondaryButton("Remove key");
         removeButton.Click += RemoveKeyClicked;
+        var resetEndpointButton = CreateSecondaryButton("Reset to OpenAI");
+        resetEndpointButton.Width = 150;
+        resetEndpointButton.Click += ResetEndpointClicked;
         keyButtons.Controls.Add(testButton);
         keyButtons.Controls.Add(removeButton);
+        keyButtons.Controls.Add(resetEndpointButton);
         AddGridRow(apiGrid, keyButtons);
+
+        _baseUrlBox = new TextBox
+        {
+            Font = Theme.Body,
+            BorderStyle = BorderStyle.FixedSingle,
+            Dock = DockStyle.Fill,
+            Text = _settings.ApiBaseUrl
+        };
+        AddRow(apiGrid, "Base URL", _baseUrlBox);
 
         _modelCombo = new ComboBox
         {
-            DropDownStyle = ComboBoxStyle.DropDownList,
+            DropDownStyle = ComboBoxStyle.DropDown,
             Font = Theme.Body,
-            Dock = DockStyle.Fill
+            Dock = DockStyle.Fill,
+            Text = _settings.Model
         };
-        foreach (var model in OpenAiModels.Known)
+        foreach (var model in OpenAiModels.Suggestions)
         {
             _modelCombo.Items.Add(model);
         }
 
-        _modelCombo.SelectedItem = OpenAiModels.Known.FirstOrDefault(model => model.Id == _settings.Model)
-            ?? OpenAiModels.Known[0];
         AddRow(apiGrid, "Transcription model", _modelCombo);
 
         _languageCombo = new ComboBox
@@ -368,6 +381,7 @@ internal sealed class SettingsForm : Form
             Font = Theme.BodyBold,
             ForeColor = Theme.Accent,
             AutoSize = true,
+            UseMnemonic = false,
             Margin = new Padding(0, 0, 0, 8)
         };
         var stack = new TableLayoutPanel
@@ -476,28 +490,52 @@ internal sealed class SettingsForm : Form
 
     private async void TestKeyClicked(object? sender, EventArgs e)
     {
+        var baseUrl = _baseUrlBox.Text.Trim();
+        if (!OpenAiEndpoint.TryValidate(baseUrl, out _, out var urlError))
+        {
+            _keyStatus.Text = $"⚠️ {urlError}";
+            _keyStatus.ForeColor = Theme.Warning;
+            return;
+        }
+
+        var isOpenAi = OpenAiEndpoint.IsOpenAi(baseUrl);
+        var storedKey = _keyStore.Load() ?? string.Empty;
         var key = _keyBox.Text.Trim();
         if (string.IsNullOrWhiteSpace(key))
         {
-            key = _keyStore.Load() ?? string.Empty;
+            key = storedKey;
         }
 
-        if (string.IsNullOrWhiteSpace(key))
+        // Do not send an old endpoint's key to a different host while testing.
+        var hostChanged = !string.Equals(
+            OpenAiEndpoint.GetHost(_settings.ApiBaseUrl),
+            OpenAiEndpoint.GetHost(baseUrl),
+            StringComparison.OrdinalIgnoreCase);
+        if (hostChanged && string.Equals(key, storedKey, StringComparison.Ordinal))
+        {
+            key = string.Empty;
+        }
+
+        if (string.IsNullOrWhiteSpace(key) && isOpenAi)
         {
             _keyStatus.Text = "🔑 Enter an API key first.";
             _keyStatus.ForeColor = Theme.Warning;
             return;
         }
 
-        _keyStatus.Text = "⏳ Checking key…";
+        _keyStatus.Text = isOpenAi ? "⏳ Checking key…" : "⏳ Checking endpoint…";
         _keyStatus.ForeColor = Theme.Muted;
         try
         {
-            var client = new OpenAiClient(_httpClient, key, _settings.ApiBaseUrl, _logger);
+            var client = new OpenAiClient(_httpClient, key, baseUrl, _logger);
             var valid = await client.ValidateApiKeyAsync();
             _keyStatus.Text = valid
-                ? "✅ Key is valid."
-                : "❌ OpenAI rejected this key.";
+                ? isOpenAi
+                    ? "✅ Key is valid."
+                    : string.IsNullOrWhiteSpace(key)
+                        ? "✅ Endpoint saved; no key required."
+                        : "✅ Endpoint is reachable."
+                : "❌ The endpoint rejected this key.";
             _keyStatus.ForeColor = valid ? Theme.Success : Theme.Danger;
         }
         catch (OpenAiException ex)
@@ -507,17 +545,25 @@ internal sealed class SettingsForm : Form
         }
         catch (Exception ex)
         {
-            _logger.Error("Settings key check failed.", ex);
-            _keyStatus.Text = "⚠️ Could not check the key.";
+            _logger.Error("Settings endpoint check failed.", ex);
+            _keyStatus.Text = "⚠️ Could not check the endpoint.";
             _keyStatus.ForeColor = Theme.Warning;
         }
+    }
+
+    private void ResetEndpointClicked(object? sender, EventArgs e)
+    {
+        _baseUrlBox.Text = OpenAiEndpoint.DefaultBaseUrl;
+        _modelCombo.Text = OpenAiModels.Default;
+        _keyStatus.Text = "♻️ OpenAI defaults restored. Save to apply.";
+        _keyStatus.ForeColor = Theme.Muted;
     }
 
     private void RemoveKeyClicked(object? sender, EventArgs e)
     {
         var result = MessageBox.Show(
             this,
-            "Remove the stored OpenAI API key?",
+            "Remove the stored API key?",
             "Tralalero",
             MessageBoxButtons.YesNo,
             MessageBoxIcon.Question);
@@ -547,10 +593,52 @@ internal sealed class SettingsForm : Form
             return;
         }
 
-        if (_modelCombo.SelectedItem is ModelOption model)
+        var baseUrl = _baseUrlBox.Text.Trim();
+        if (!OpenAiEndpoint.TryValidate(baseUrl, out _, out var urlError))
         {
-            _settings.Model = model.Id;
+            MessageBox.Show(
+                this,
+                urlError ?? "Enter a valid endpoint URL.",
+                "Endpoint",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
+            return;
         }
+
+        baseUrl = OpenAiEndpoint.NormalizeBaseUrl(baseUrl);
+        var model = _modelCombo.Text.Trim();
+        if (string.IsNullOrWhiteSpace(model))
+        {
+            MessageBox.Show(
+                this,
+                "The model name cannot be empty.",
+                "Endpoint",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
+            return;
+        }
+
+        var oldHost = OpenAiEndpoint.GetHost(_settings.ApiBaseUrl);
+        var newHost = OpenAiEndpoint.GetHost(baseUrl);
+        var hostChanged = !string.Equals(oldHost, newHost, StringComparison.OrdinalIgnoreCase);
+        var storedKey = _keyStore.Load();
+        var key = _keyBox.Text.Trim();
+        var keyCleared = false;
+
+        // Never forward a key that belonged to a different endpoint host.
+        if (hostChanged &&
+            !string.IsNullOrWhiteSpace(storedKey) &&
+            (string.IsNullOrWhiteSpace(key) || string.Equals(key, storedKey, StringComparison.Ordinal)))
+        {
+            _keyStore.Delete();
+            _keyBox.Clear();
+            _removeKey = true;
+            key = string.Empty;
+            keyCleared = true;
+        }
+
+        _settings.ApiBaseUrl = baseUrl;
+        _settings.Model = model;
 
         if (_languageCombo.SelectedItem is LanguageOption language)
         {
@@ -574,19 +662,30 @@ internal sealed class SettingsForm : Form
         _settings.CloseToTray = _closeToTray.Checked;
         _settings.LaunchAtStartup = _launchAtStartup.Checked;
 
-        var key = _keyBox.Text.Trim();
         if (!string.IsNullOrWhiteSpace(key))
         {
             _keyStore.Save(key);
             _removeKey = false;
         }
-        else if (_removeKey)
+        else if (_removeKey || hostChanged)
         {
             _keyStore.Delete();
         }
 
         _settingsService.Save(_settings);
-        _logger.Info("Settings saved.");
+        _logger.Info($"Settings saved for endpoint '{newHost}', model '{model}'.");
+
+        if (keyCleared)
+        {
+            MessageBox.Show(
+                this,
+                "The endpoint host changed. The previous API key was cleared so it cannot be sent to the new host.\n\n" +
+                "Enter the new endpoint's key, or leave it empty if the endpoint does not require one.",
+                "Endpoint changed",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
+        }
+
         DialogResult = DialogResult.OK;
         Close();
     }

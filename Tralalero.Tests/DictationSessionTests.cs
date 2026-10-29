@@ -31,6 +31,30 @@ public sealed class DictationSessionTests
     }
 
     [Fact]
+    public async Task TranscriptionError_StopsTheRecorderOnlyOnce()
+    {
+        var recorder = new BlockingStopRecorder();
+        var transcriber = new FailingTranscriber();
+        var session = new DictationSession(() => recorder, transcriber, NullAppLogger.Instance);
+        var error = new TaskCompletionSource<Exception>(TaskCreationOptions.RunContinuationsAsynchronously);
+        session.Error += (_, args) => error.TrySetResult(args.Error);
+
+        await session.StartAsync(0, new AppSettings { MaxRecordingMinutes = 1 });
+        recorder.Emit(Join(Silence(500), Tone(1000), Silence(1800)));
+
+        await transcriber.Called.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await recorder.StopStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var finalization = session.StopAsync();
+        recorder.ReleaseStop.TrySetResult();
+        await finalization.WaitAsync(TimeSpan.FromSeconds(5));
+        await error.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(1, recorder.StopCalls);
+        Assert.Equal(DictationState.Error, session.State);
+        session.Dispose();
+    }
+
+    [Fact]
     public async Task StartAsync_RejectsASecondSession()
     {
         var recorder = new FakeRecorder();
@@ -109,6 +133,56 @@ public sealed class DictationSessionTests
         {
             Called.TrySetResult();
             return Task.FromResult("hola mundo");
+        }
+    }
+
+    private sealed class FailingTranscriber : ITranscriber
+    {
+        public TaskCompletionSource Called { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task<string> TranscribeAsync(
+            AudioSegment segment,
+            TranscriptionOptions options,
+            string? prompt,
+            CancellationToken cancellationToken)
+        {
+            Called.TrySetResult();
+            return Task.FromException<string>(new InvalidOperationException("transcription failed"));
+        }
+    }
+
+    private sealed class BlockingStopRecorder : IAudioRecorder
+    {
+        public event EventHandler<AudioChunkEventArgs>? AudioAvailable;
+        public event EventHandler<float>? LevelChanged;
+
+        public bool IsRecording { get; private set; }
+
+        public int StopCalls { get; private set; }
+
+        public TaskCompletionSource StopStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource ReleaseStop { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public void Start(int deviceNumber)
+        {
+            IsRecording = true;
+            LevelChanged?.Invoke(this, 0.2f);
+        }
+
+        public Task StopAsync()
+        {
+            StopCalls++;
+            StopStarted.TrySetResult();
+            return ReleaseStop.Task;
+        }
+
+        public void Emit(byte[] pcm) => AudioAvailable?.Invoke(this, new AudioChunkEventArgs(pcm));
+
+        public void Dispose()
+        {
         }
     }
 }

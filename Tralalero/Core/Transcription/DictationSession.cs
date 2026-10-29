@@ -61,6 +61,7 @@ public sealed class DictationSession : IDisposable
     private readonly object _gate = new();
 
     private IAudioRecorder? _recorder;
+    private Task? _recorderStopTask;
     private VoiceActivitySegmenter? _segmenter;
     private AppSettings? _settings;
     private Task? _processingTask;
@@ -175,6 +176,20 @@ public sealed class DictationSession : IDisposable
         _cancellation.Dispose();
     }
 
+    private Task StopRecorderAsync()
+    {
+        lock (_gate)
+        {
+            if (_recorder is null)
+            {
+                return Task.CompletedTask;
+            }
+
+            // The error path and finalization may race; both must await the same stop.
+            return _recorderStopTask ??= _recorder.StopAsync();
+        }
+    }
+
     private async Task ProcessSegmentsAsync(CancellationToken cancellationToken)
     {
         try
@@ -210,10 +225,7 @@ public sealed class DictationSession : IDisposable
 
             try
             {
-                if (_recorder is not null)
-                {
-                    await _recorder.StopAsync().ConfigureAwait(false);
-                }
+                await StopRecorderAsync().ConfigureAwait(false);
             }
             catch (Exception stopException)
             {
@@ -233,15 +245,16 @@ public sealed class DictationSession : IDisposable
                 return;
             }
 
-            SetState(DictationState.Finalizing, "Finishing");
+            if (State != DictationState.Error)
+            {
+                SetState(DictationState.Finalizing, "Finishing");
+            }
+
             _stoppedAt ??= DateTimeOffset.UtcNow;
 
             try
             {
-                if (_recorder is not null)
-                {
-                    await _recorder.StopAsync().ConfigureAwait(false);
-                }
+                await StopRecorderAsync().ConfigureAwait(false);
             }
             catch (Exception ex)
             {

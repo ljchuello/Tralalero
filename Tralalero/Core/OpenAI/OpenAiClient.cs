@@ -26,26 +26,33 @@ public sealed class OpenAiClient
 
     public OpenAiClient(
         HttpClient httpClient,
-        string apiKey,
+        string? apiKey,
         string baseUrl,
         IAppLogger logger,
         Func<TimeSpan, CancellationToken, Task>? delay = null)
     {
         ArgumentNullException.ThrowIfNull(httpClient);
-        ArgumentException.ThrowIfNullOrWhiteSpace(apiKey);
         ArgumentException.ThrowIfNullOrWhiteSpace(baseUrl);
 
         _httpClient = httpClient;
-        _apiKey = apiKey.Trim();
-        _baseUrl = baseUrl.TrimEnd('/');
+        _apiKey = apiKey?.Trim() ?? string.Empty;
+        _baseUrl = OpenAiEndpoint.NormalizeBaseUrl(baseUrl);
         _logger = logger;
         _delay = delay ?? Task.Delay;
     }
 
-    /// <summary>Validates the key without spending transcription credits.</summary>
+    private bool IsOpenAi => OpenAiEndpoint.IsOpenAi(_baseUrl);
+
+    /// <summary>Validates the endpoint without spending transcription credits.</summary>
     public async Task<bool> ValidateApiKeyAsync(CancellationToken cancellationToken = default)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Get, $"{_baseUrl}/models");
+        // A keyless custom endpoint has nothing to authenticate. OpenAI always requires a key.
+        if (string.IsNullOrWhiteSpace(_apiKey))
+        {
+            return !IsOpenAi;
+        }
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, OpenAiEndpoint.BuildModelsUrl(_baseUrl));
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _apiKey);
         request.Headers.UserAgent.ParseAdd("Tralalero/0.1.0");
 
@@ -63,17 +70,25 @@ public sealed class OpenAiClient
                 return false;
             }
 
+            // Many compatible servers do not implement /models. That is not an auth failure.
+            if (!IsOpenAi &&
+                (response.StatusCode == HttpStatusCode.NotFound ||
+                 response.StatusCode == HttpStatusCode.MethodNotAllowed))
+            {
+                return true;
+            }
+
             if (response.StatusCode == HttpStatusCode.TooManyRequests)
             {
                 throw new OpenAiRateLimitException(
-                    "OpenAI rate limit reached while checking the key. Try again shortly.",
+                    "The endpoint rate limit was reached while checking the key. Try again shortly.",
                     response.StatusCode);
             }
 
             if ((int)response.StatusCode >= 500)
             {
                 throw new OpenAiServiceException(
-                    "OpenAI is temporarily unavailable while checking the key.",
+                    "The endpoint is temporarily unavailable while checking the key.",
                     response.StatusCode);
             }
 
@@ -82,11 +97,11 @@ public sealed class OpenAiClient
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            throw new OpenAiTimeoutException("The OpenAI key check timed out. Check your connection.");
+            throw new OpenAiTimeoutException("The endpoint check timed out. Check your connection.");
         }
         catch (HttpRequestException ex)
         {
-            throw new OpenAiNetworkException("Could not reach OpenAI. Check your internet connection.", ex);
+            throw new OpenAiNetworkException("Could not reach the transcription endpoint. Check your connection.", ex);
         }
     }
 
@@ -120,13 +135,14 @@ public sealed class OpenAiClient
                 }
 
                 var errorBody = await response.Content.ReadAsStringAsync(timeout.Token).ConfigureAwait(false);
-                var message = ExtractErrorMessage(errorBody) ?? $"OpenAI returned HTTP {(int)response.StatusCode}.";
+                var message = ExtractErrorMessage(errorBody) ??
+                              $"The transcription endpoint returned HTTP {(int)response.StatusCode}.";
 
                 if (ShouldRetry(response.StatusCode) && attempt < MaxAttempts)
                 {
                     var delay = GetRetryDelay(response, attempt);
                     _logger.Warn(
-                        $"OpenAI request failed with {(int)response.StatusCode}. " +
+                        $"Transcription endpoint request failed with {(int)response.StatusCode}. " +
                         $"Retrying in {delay.TotalSeconds:0.0}s (attempt {attempt}/{MaxAttempts}).");
                     await _delay(delay, cancellationToken).ConfigureAwait(false);
                     continue;
@@ -139,57 +155,101 @@ public sealed class OpenAiClient
                 if (attempt < MaxAttempts)
                 {
                     var delay = TimeSpan.FromSeconds(Math.Min(4, Math.Pow(2, attempt - 1)));
-                    _logger.Warn($"OpenAI request timed out. Retrying in {delay.TotalSeconds:0.0}s.");
+                    _logger.Warn($"Transcription request timed out. Retrying in {delay.TotalSeconds:0.0}s.");
                     await _delay(delay, cancellationToken).ConfigureAwait(false);
                     continue;
                 }
 
-                throw new OpenAiTimeoutException("OpenAI did not answer in time. Try again.");
+                throw new OpenAiTimeoutException("The transcription endpoint did not answer in time. Try again.");
             }
             catch (HttpRequestException ex)
             {
                 if (attempt < MaxAttempts)
                 {
                     var delay = TimeSpan.FromSeconds(Math.Min(4, Math.Pow(2, attempt - 1)));
-                    _logger.Warn($"OpenAI network error. Retrying in {delay.TotalSeconds:0.0}s.", ex);
+                    _logger.Warn($"Transcription endpoint network error. Retrying in {delay.TotalSeconds:0.0}s.", ex);
                     await _delay(delay, cancellationToken).ConfigureAwait(false);
                     continue;
                 }
 
-                throw new OpenAiNetworkException("Could not reach OpenAI. Check your internet connection.", ex);
+                throw new OpenAiNetworkException("Could not reach the transcription endpoint. Check your connection.", ex);
             }
         }
 
-        throw new OpenAiServiceException("OpenAI is temporarily unavailable. Try again.", HttpStatusCode.ServiceUnavailable);
+        throw new OpenAiServiceException(
+            "The transcription endpoint is temporarily unavailable. Try again.",
+            HttpStatusCode.ServiceUnavailable);
     }
 
     private HttpRequestMessage BuildTranscriptionRequest(byte[] wavBytes, string model, string? language, string? prompt)
     {
         var content = new MultipartFormDataContent();
-        var audio = new ByteArrayContent(wavBytes);
-        audio.Headers.ContentType = new MediaTypeHeaderValue("audio/wav");
-        content.Add(audio, "file", "segment.wav");
-        content.Add(new StringContent(model), "model");
+        AddFile(content, wavBytes, "file", "segment.wav");
+        AddField(content, "model", model);
 
         if (!string.IsNullOrWhiteSpace(language) &&
             !string.Equals(language, "auto", StringComparison.OrdinalIgnoreCase))
         {
-            // gpt-transcribe expects languages[]; it intentionally rejects the old singular field.
-            content.Add(new StringContent(language.Trim()), "languages[]");
+            // gpt-transcribe expects languages[]; most compatible Whisper servers use language.
+            var field = IsOpenAi ? "languages[]" : "language";
+            AddField(content, field, language.Trim());
         }
 
-        if (!string.IsNullOrWhiteSpace(prompt))
+        // Prompt context is useful on OpenAI; skip it on custom servers to maximize compatibility.
+        if (IsOpenAi && !string.IsNullOrWhiteSpace(prompt))
         {
-            content.Add(new StringContent(prompt.Trim()), "prompt");
+            AddField(content, "prompt", prompt.Trim());
         }
 
-        var request = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}/audio/transcriptions")
+        var request = new HttpRequestMessage(HttpMethod.Post, OpenAiEndpoint.BuildTranscriptionUrl(_baseUrl))
         {
             Content = content
         };
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _apiKey);
+        if (!string.IsNullOrWhiteSpace(_apiKey))
+        {
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _apiKey);
+        }
+
         request.Headers.UserAgent.ParseAdd("Tralalero/0.1.0");
         return request;
+    }
+
+    private static void AddField(MultipartFormDataContent content, string name, string value)
+    {
+        var field = new StringContent(value);
+        field.Headers.ContentDisposition = CreateDisposition(name);
+        content.Add(field);
+    }
+
+    private static void AddFile(
+        MultipartFormDataContent content,
+        byte[] wavBytes,
+        string name,
+        string fileName)
+    {
+        var file = new ByteArrayContent(wavBytes);
+        file.Headers.ContentType = new MediaTypeHeaderValue("audio/wav");
+        file.Headers.ContentDisposition = CreateDisposition(name, fileName);
+        content.Add(file);
+    }
+
+    /// <summary>
+    /// Quotes Content-Disposition parameter values. .NET leaves simple tokens unquoted,
+    /// but strict multipart parsers (for example OpenRouter's) reject that form.
+    /// </summary>
+    private static ContentDispositionHeaderValue CreateDisposition(string name, string? fileName = null)
+    {
+        var disposition = new ContentDispositionHeaderValue("form-data")
+        {
+            Name = $"\"{name}\""
+        };
+
+        if (fileName is not null)
+        {
+            disposition.FileName = $"\"{fileName}\"";
+        }
+
+        return disposition;
     }
 
     private static bool ShouldRetry(HttpStatusCode statusCode) =>
@@ -279,11 +339,11 @@ public sealed class OpenAiClient
         return statusCode switch
         {
             HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden => new OpenAiAuthenticationException(
-                "OpenAI rejected the API key. Check it in Settings.",
+                "The endpoint rejected the API key. Check it in Settings.",
                 statusCode,
                 innerException),
             HttpStatusCode.TooManyRequests => new OpenAiRateLimitException(
-                "OpenAI rate limit reached. Wait a moment and try again.",
+                "The endpoint rate limit was reached. Wait a moment and try again.",
                 statusCode,
                 innerException),
             HttpStatusCode.RequestEntityTooLarge => new OpenAiRequestException(
@@ -291,7 +351,7 @@ public sealed class OpenAiClient
                 statusCode,
                 innerException),
             _ when code >= 500 => new OpenAiServiceException(
-                "OpenAI is temporarily unavailable. Try again.",
+                "The transcription endpoint is temporarily unavailable. Try again.",
                 statusCode,
                 innerException),
             _ => new OpenAiRequestException(message, statusCode, innerException)

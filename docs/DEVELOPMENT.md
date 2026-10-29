@@ -40,6 +40,7 @@ dotnet test .\Tralalero.slnx -c Debug --collect:"XPlat Code Coverage"
 | VAD segmentation | `VoiceActivitySegmenterTests.cs` |
 | Transcript merging | `TranscriptAggregatorTests.cs` |
 | OpenAI request/retry/errors | `OpenAiClientTests.cs` |
+| Endpoint URL/host rules | `OpenAiEndpointTests.cs` |
 | Session orchestration | `DictationSessionTests.cs` |
 | Settings round-trip/corruption | `SettingsServiceTests.cs` |
 | DPAPI key storage | `ApiKeyStoreTests.cs` |
@@ -99,6 +100,10 @@ Use a real microphone and a real API key:
 - [ ] Change language to Auto-detect; dictate a short phrase.
 - [ ] Change VAD sensitivity; test in a quiet/noisy room.
 - [ ] Change the hotkey; verify the old one stops working.
+- [ ] Change the Base URL and model; verify the status badge updates.
+- [ ] Test a keyless local endpoint; verify `🔓 No key required` and a real transcription.
+- [ ] Change hosts with a saved key; confirm the key is cleared and never sent to the new host.
+- [ ] Reset to OpenAI defaults.
 - [ ] Switch to tray; double-click to restore; use tray Start/Stop.
 - [ ] Close to tray; exit from tray.
 - [ ] Disconnect the microphone; start dictation; confirm a friendly error.
@@ -151,8 +156,9 @@ The script:
 - Never log transcript text.
 - Never put the API key in UI error messages or clipboard.
 - Keep `ApiKeyStore` on DPAPI `CurrentUser`.
+- Never reuse a key across endpoint hosts; Settings clears it when the host changes.
 - Treat `ApiBaseUrl` overrides as trusted configuration.
-- Use HTTPS for any real endpoint.
+- Use HTTPS for any real remote endpoint; localhost/private LAN may use HTTP.
 
 ## 🧯 Debugging tips
 

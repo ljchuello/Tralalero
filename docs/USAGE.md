@@ -5,8 +5,8 @@
 ## 📋 Requirements
 
 - 🪟 Windows 10 or Windows 11, x64.
-- 🌐 Internet access while dictating (audio goes to OpenAI).
-- 🔑 An OpenAI API key with billing/usage enabled.
+- 🌐 Internet access for the default OpenAI endpoint; a local endpoint may work offline.
+- 🔑 An OpenAI API key with billing/usage enabled for the default endpoint, or a compatible local endpoint (which may not need a key).
 - 🎤 A microphone that Windows can access.
 - 💾 About 100 MB free for the app; the release is self-contained.
 
@@ -32,11 +32,10 @@ dotnet run --project .\Tralalero\Tralalero.csproj
 
 1. **🔐 Privacy notice.** Read the audio notice and tick the consent checkbox.
 2. **🔑 OpenAI API key.** Paste a project key and press **Continue**. Tralalero validates it against `GET /v1/models` without spending transcription credits.
-3. **✅ Ready.** The main window shows `🟢 Ready` and a `🔑 Key ready` badge.
+   - 🏠 Using a local keyless endpoint? Choose **Continue without a key** after accepting the privacy notice, then set the Base URL and model in Settings.
+3. **✅ Ready.** The main window shows `🟢 Ready` and either `🔑 Key ready` or `🔓 No key required`.
 
 If you choose **Skip for now**, the app opens with a banner. You can return via **Open setup →** or **Settings**.
-
-![Tralalero setup](assets/screenshot-setup.png)
 
 ## 🎤 Dictate
 
@@ -75,8 +74,9 @@ The transcript box is editable when idle. While listening, it is read-only so li
 
 | Setting | Default | Notes |
 |---|---|---|
-| 🔑 API key | none | Encrypted with DPAPI; **Test key** validates it. |
-| 🧠 Model | `gpt-transcribe` | OpenAI's recommended file-transcription model. |
+| 🔑 API key | none | Encrypted with DPAPI; optional for local keyless endpoints. |
+| 🌐 Base URL | `https://api.openai.com/v1` | Change it for an OpenAI-compatible endpoint. |
+| 🧠 Model | `gpt-transcribe` | Editable; suggestions include `whisper-1`, `whisper-large-v3`, and faster-whisper names. |
 | 🌎 Language | Spanish | Choose **Auto-detect** if you switch languages. |
 | 🎤 Microphone | first device | Device list comes from Windows/NAudio. |
 | 🎚️ Voice sensitivity | Medium | Low for noisy rooms, High for quiet rooms. |
@@ -87,7 +87,11 @@ The transcript box is editable when idle. While listening, it is read-only so li
 | 🪟 Close to tray | On | The close button hides Tralalero instead of exiting. |
 | 🚀 Start with Windows | Off | Adds a per-user `Run` registry value. |
 
-> 🧠 Changing the model or language applies to the **next** phrase/session. The current session keeps its snapshot.
+> 🧠 Changing the endpoint, model, or language applies to the **next** phrase/session. The current session keeps its snapshot.
+>
+> 🔐 If you change the endpoint host, Tralalero clears the previous API key so it cannot be sent to the new host. Enter the new key, or leave it empty for a keyless local endpoint.
+>
+> 🔄 **Reset to OpenAI** restores the base URL and `gpt-transcribe`.
 
 ## 🖥️ Tray
 
@@ -106,7 +110,7 @@ Use **Exit** to actually close the app; the window's **X** only hides it when **
 ## ⏱️ Near-live behavior
 
 - Tralalero waits for a **pause** before sending a phrase. It does not stream word by word.
-- Each phrase becomes one OpenAI request; the text arrives a moment after you pause.
+- Each phrase becomes one request to your configured endpoint; the text arrives a moment after you pause.
 - A phrase can be at most 20 seconds. If you speak continuously, it may split at 20 seconds.
 - A recording can be at most 10 minutes by default.
 - The status badge shows `🔴 Listening`, `⏳ Finishing`, and `🟢 Ready`.
@@ -118,11 +122,11 @@ Use **Exit** to actually close the app; the window's **X** only hides it when **
 - 🤫 Reduce background noise; lower sensitivity in noisy rooms.
 - 🗣️ Speak at a natural pace and pause between sentences.
 - 🌎 Set the language explicitly if you mostly speak one language.
-- 🔌 Keep the connection stable; requests retry automatically but cannot succeed offline.
+- 🔌 For remote endpoints, keep the connection stable; requests retry automatically but cannot succeed offline.
 
 ## 🔐 Privacy & data
 
-- The microphone audio is sent to OpenAI for transcription.
+- The microphone audio is sent to your configured transcription endpoint (OpenAI by default).
 - Tralalero does not write audio to disk.
 - Transcripts remain in memory until you copy or save them.
 - Logs contain metadata only (model, duration, phrase count, errors), never transcript text.

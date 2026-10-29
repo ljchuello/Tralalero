@@ -7,7 +7,7 @@
 - 🪶 **Small surface area:** one WinForms app, one test project, no database, no container, no background service.
 - ⚡ **Near-live:** show a phrase shortly after the speaker pauses.
 - 🧱 **Testable core:** audio segmentation, transcript merging, HTTP behavior, settings, and security are unit-testable without a microphone or API key.
-- 🔐 **Local-first UI, cloud transcription:** audio leaves the machine only for the OpenAI request; the key stays encrypted on disk.
+- 🔐 **Local-first UI, configurable transcription endpoint:** audio leaves the machine only for the configured request; the key stays encrypted on disk.
 - 🧩 **Provider seam:** `ITranscriber` makes a future local Whisper provider possible without touching the UI.
 
 ## 🧭 Runtime flow
@@ -40,7 +40,8 @@ flowchart LR
 | `AudioRecorder` | Core/Audio | NAudio capture at 16 kHz, mono, 16-bit; level events; stop handshake. |
 | `VoiceActivitySegmenter` | Core/Audio | Energy-based VAD, pre-roll, hangover, phrase sizing, WAV creation. |
 | `WavWriter` | Core/Audio | Adds a PCM WAV header around raw microphone bytes. |
-| `OpenAiClient` | Core/OpenAI | Multipart request, auth, timeout, retry, safe error mapping. |
+| `OpenAiEndpoint` | Core/OpenAI | URL normalization, host detection, request URL building, public/local validation. |
+| `OpenAiClient` | Core/OpenAI | Multipart request, auth, timeout, retry, safe error mapping, OpenAI/custom compatibility. |
 | `OpenAiTranscriber` | Core/Transcription | Implements `ITranscriber` using `OpenAiClient`. |
 | `DictationSession` | Core/Transcription | One recording lifecycle: queue, sequential requests, state, events. |
 | `TranscriptAggregator` | Core/Transcription | Joins phrases, normalizes whitespace, keeps prompt context. |
@@ -114,26 +115,36 @@ Requests are **sequential** on purpose:
 - avoids hammering rate limits,
 - makes the transcript deterministic.
 
-## 🌐 OpenAI request shape
+## 🌐 Transcription request shape
 
 ```http
-POST /v1/audio/transcriptions
-Authorization: Bearer <key>
+POST {baseUrl}/audio/transcriptions
+Authorization: Bearer <key>   # omitted for keyless custom endpoints
 Content-Type: multipart/form-data
 
 file=segment.wav
 model=gpt-transcribe
-languages[]=es          # omitted for auto-detect
-prompt=<last ~240 chars> # optional context
+languages[]=es                # OpenAI hosts
+# language=es                 # custom hosts
+prompt=<last ~240 chars>      # OpenAI hosts only
 ```
 
 The response is JSON with a `text` field and optional detected `languages`. Tralalero keeps the response parsing tolerant of API-compatible servers that return plain text.
+
+**Compatibility mode** is inferred from the host:
+
+| Host | Auth | Language field | Prompt | `/models` |
+|---|---|---|---|---|
+| `api.openai.com` | Bearer, required | `languages[]` | Sent | Required |
+| Anything else | Bearer if key; none if empty | `language` | Skipped | Best-effort |
+
+The same `OpenAiClient` handles both, so the UI only needs a Base URL and model.
 
 ## 🛡️ Failure handling
 
 | Failure | Behavior |
 |---|---|
-| `401` / `403` | Stop, show “OpenAI rejected the API key”, keep partial transcript. |
+| `401` / `403` | Stop, show “The endpoint rejected the API key”, keep partial transcript. |
 | `429` | Retry with `Retry-After` or exponential backoff, up to 3 attempts. |
 | `5xx` | Retry with backoff, up to 3 attempts. |
 | `400` / `413` | Show the API message; do not retry. |
@@ -152,7 +163,7 @@ Logs contain model, duration, phrase count, HTTP status, and errors. They **neve
 - 🧾 Logs: `%LOCALAPPDATA%\Tralalero\logs`; redacted and metadata-only.
 - 🎙️ Audio: memory-only; no WAV files are written by the app.
 - 📋 Clipboard: final transcript only; user-initiated or auto-copy/paste.
-- 🌐 Network: OpenAI API only; no telemetry endpoint.
+- 🌐 Network: the configured transcription endpoint only; no telemetry endpoint.
 
 ## 🧭 Design decisions
 
@@ -161,7 +172,9 @@ Logs contain model, duration, phrase count, HTTP status, and errors. They **neve
 3. **Phrase-based near-live over Realtime API.** Much simpler lifecycle, no WebSocket reconnection, clean final phrases; latency is acceptable for dictation.
 4. **Single app assembly + test project.** Avoids over-layering while keeping audio, HTTP, and settings testable. Folders communicate boundaries.
 5. **Energy VAD over a neural VAD.** Zero extra dependencies, predictable CPU, easy unit tests. Sensitivity is user-adjustable.
-6. **No transcript persistence.** Privacy by default; the user explicitly saves a `.txt` when desired.
+6. **One active endpoint over profiles.** Base URL + editable model cover the common OpenAI-compatible cases without a profile manager. Per-profile keys can be added later if needed.
+7. **Auto compatibility over advanced UI.** The host decides between OpenAI's `languages[]`/prompt shape and the broader `language`/keyless shape.
+8. **No transcript persistence.** Privacy by default; the user explicitly saves a `.txt` when desired.
 
 ## 🔮 Future extension points
 

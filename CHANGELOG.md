@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- 🌐 Custom OpenAI-compatible endpoint support: editable Base URL and model in Settings, with OpenAI defaults and “Reset to OpenAI”.
+- 🔀 Automatic compatibility mode: OpenAI hosts use `languages[]` + prompt; custom hosts use `language`, skip the prompt, and allow keyless auth.
+- 🔐 Endpoint host changes clear the previous API key so it is never forwarded to a different server.
+- 🧪 Endpoint URL/host tests and custom-client tests; suite now at 51 tests.
+- 🌐 OpenRouter STT model suggestions (`openai/whisper-1`, `openai/whisper-large-v3`).
+
+### Fixed
+
+- 🌐 Multipart field names are now quoted, so strict parsers such as OpenRouter accept transcription uploads.
+- 🛑 A transcription error no longer leaves dictation stuck in “Finishing” while the microphone stop times out.
+
 ### Planned
 
 - 🎚️ Optional neural VAD backend.

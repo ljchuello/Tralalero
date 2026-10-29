@@ -46,6 +46,7 @@ public sealed class AudioRecorder : IAudioRecorder
     private readonly object _gate = new();
     private WaveIn? _waveIn;
     private TaskCompletionSource? _stopped;
+    private Task? _stopTask;
     private bool _disposed;
 
     public event EventHandler<AudioChunkEventArgs>? AudioAvailable;
@@ -107,6 +108,11 @@ public sealed class AudioRecorder : IAudioRecorder
         {
             _waveIn.StartRecording();
             IsRecording = true;
+            lock (_gate)
+            {
+                _stopped = null;
+                _stopTask = null;
+            }
         }
         catch (Exception ex) when (ex is MmException or InvalidOperationException)
         {
@@ -121,14 +127,22 @@ public sealed class AudioRecorder : IAudioRecorder
     {
         lock (_gate)
         {
+            // Concurrent stop requests must share one wait. Calling StopRecording
+            // twice can leave the second waiter pending until the timeout.
+            if (_stopTask is not null)
+            {
+                return _stopTask;
+            }
+
             if (!IsRecording || _waveIn is null)
             {
                 return Task.CompletedTask;
             }
 
             _stopped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            _stopTask = _stopped.Task.WaitAsync(TimeSpan.FromSeconds(5));
             _waveIn.StopRecording();
-            return _stopped.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            return _stopTask;
         }
     }
 

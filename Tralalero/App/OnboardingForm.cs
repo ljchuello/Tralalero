@@ -17,6 +17,7 @@ internal sealed class OnboardingForm : Form
     private readonly CheckBox _consent;
     private readonly TextBox _keyBox;
     private readonly Label _status;
+    private readonly LinkLabel _keylessLink;
     private readonly ThemedButton _continueButton;
     private readonly ThemedButton _skipButton;
 
@@ -71,7 +72,7 @@ internal sealed class OnboardingForm : Form
         };
         var subtitle = new Label
         {
-            Text = "Near-live dictation for Windows, powered by OpenAI.",
+            Text = "Near-live dictation for Windows, powered by your transcription endpoint.",
             Font = Theme.Subtitle,
             ForeColor = Theme.Muted,
             AutoSize = true,
@@ -95,9 +96,9 @@ internal sealed class OnboardingForm : Form
         };
         var privacyText = new Label
         {
-            Text = "Your microphone audio is sent to OpenAI for transcription.\n" +
-                   "Tralalero does not store your audio. OpenAI's privacy policy applies.\n" +
-                   "You can remove your API key at any time from Settings.",
+            Text = "Your microphone audio is sent to your configured transcription endpoint\n" +
+                   "(OpenAI by default). Tralalero does not store your audio.\n" +
+                   "You can change the endpoint and remove your API key in Settings.",
             Font = Theme.Body,
             ForeColor = Theme.Muted,
             AutoSize = false,
@@ -109,7 +110,7 @@ internal sealed class OnboardingForm : Form
 
         _consent = new CheckBox
         {
-            Text = "I understand and agree to send my audio to OpenAI for transcription.",
+            Text = "I understand and agree to send my audio to my configured transcription endpoint.",
             Font = Theme.Body,
             ForeColor = Theme.Text,
             BackColor = Theme.Background,
@@ -147,6 +148,28 @@ internal sealed class OnboardingForm : Form
             Margin = new Padding(0, 0, 0, 10)
         };
         keyLink.LinkClicked += (_, _) => OpenUrl("https://platform.openai.com/api-keys");
+
+        _keylessLink = new LinkLabel
+        {
+            Text = "Using a local endpoint without a key? Continue without a key →",
+            Font = Theme.Small,
+            LinkColor = Theme.Accent,
+            ActiveLinkColor = Theme.AccentHover,
+            AutoSize = true,
+            Margin = new Padding(0, 0, 0, 10)
+        };
+        _keylessLink.LinkClicked += KeylessEndpointClicked;
+
+        var keyLinks = new FlowLayoutPanel
+        {
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = true,
+            AutoSize = true,
+            Dock = DockStyle.Fill,
+            Margin = new Padding(0, 0, 0, 6)
+        };
+        keyLinks.Controls.Add(keyLink);
+        keyLinks.Controls.Add(_keylessLink);
 
         _status = new Label
         {
@@ -201,7 +224,7 @@ internal sealed class OnboardingForm : Form
         root.Controls.Add(_consent, 0, 3);
         root.Controls.Add(keyLabel, 0, 4);
         root.Controls.Add(_keyBox, 0, 5);
-        root.Controls.Add(keyLink, 0, 6);
+        root.Controls.Add(keyLinks, 0, 6);
         root.Controls.Add(_status, 0, 7);
         root.Controls.Add(buttons, 0, 9);
 
@@ -260,10 +283,26 @@ internal sealed class OnboardingForm : Form
         }
     }
 
+    private void KeylessEndpointClicked(object? sender, LinkLabelLinkClickedEventArgs e)
+    {
+        if (!_consent.Checked)
+        {
+            SetStatus("⚠️ Please accept the privacy notice first.", Theme.Warning);
+            return;
+        }
+
+        _settings.ConsentAcceptedAtUtc = DateTimeOffset.UtcNow;
+        _settingsService.Save(_settings);
+        _logger.Info("Onboarding completed without an API key; configure a custom endpoint.");
+        DialogResult = DialogResult.OK;
+        Close();
+    }
+
     private void SetBusy(bool busy)
     {
         _continueButton.Enabled = !busy;
         _skipButton.Enabled = !busy;
+        _keylessLink.Enabled = !busy;
         _keyBox.Enabled = !busy;
         _consent.Enabled = !busy;
     }

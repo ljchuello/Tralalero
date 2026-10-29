@@ -23,12 +23,47 @@
 - Check your OpenAI project usage/limits.
 - Retry behavior is automatic (up to 3 attempts with backoff).
 
-### “Could not reach OpenAI” / timeout
+### Custom endpoint returns 404/405
+
+- Some compatible servers do not implement `/models`; Tralalero treats that as **saved but unverified**, not as an auth failure.
+- Verify the Base URL ends at the API root, usually `/v1`.
+- If the server exposes the transcription endpoint directly, a Base URL ending in `/audio/transcriptions` is also accepted.
+- Check the server logs to confirm it implements `POST /audio/transcriptions`.
+
+### Custom endpoint rejects `languages[]` or `prompt`
+
+For non-OpenAI hosts, Tralalero automatically sends `language` (not `languages[]`) and skips the context prompt. If it still fails:
+
+- Check the server's expected language field and model name.
+- Some servers require a specific model identifier; use the exact name shown by the server.
+- Try a short phrase in a quiet room to rule out audio/VAD issues.
+
+### OpenRouter returns “Invalid multipart/form-data body”
+
+Older builds sent multipart field names unquoted (`name=file`), which OpenRouter rejects. Update Tralalero so the upload uses quoted names (`name="file"`).
+
+Also use an OpenRouter STT slug such as `openai/whisper-large-v3` or `openai/whisper-1`. A local server identifier such as `Systran/faster-whisper-large-v3` is not a valid OpenRouter model.
+
+### Local endpoint works without a key
+
+- In Settings, leave **API key** empty.
+- Set the Base URL to `http://localhost:<port>/v1` and the model to the server's exact name.
+- Use **Test key**; a keyless custom endpoint should report `✅ Endpoint saved; no key required.`
+- If the app previously stored an OpenAI key, changing the host clears it automatically on save.
+
+### “Remote endpoints must use HTTPS”
+
+- Use `https://` for any public host.
+- Plain HTTP is accepted only for `localhost`, loopback, and private LAN addresses (for example `192.168.x.x`).
+- For a remote development server, put it behind HTTPS or use an SSH tunnel to localhost.
+
+### “Could not reach the transcription endpoint” / timeout
 
 - Check internet access.
-- Check VPN/proxy/firewall rules for `api.openai.com`.
+- Check VPN/proxy/firewall rules for `api.openai.com` or your custom host.
 - Try again; Tralalero retries transient errors.
-- If you use an advanced custom `ApiBaseUrl`, confirm the proxy supports multipart uploads.
+- For a custom endpoint, confirm it supports multipart uploads and the selected model.
+- For localhost, check that the local server is running and listening on the expected port.
 
 ## 🎤 Microphone
 

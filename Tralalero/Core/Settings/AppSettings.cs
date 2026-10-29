@@ -64,9 +64,12 @@ public sealed class AppSettings
         Language = string.IsNullOrWhiteSpace(Language) ? "es" : Language.Trim();
         Hotkey = string.IsNullOrWhiteSpace(Hotkey) ? "Ctrl+Alt+Space" : Hotkey.Trim();
         MaxRecordingMinutes = Math.Clamp(MaxRecordingMinutes, 1, 60);
-        ApiBaseUrl = string.IsNullOrWhiteSpace(ApiBaseUrl)
-            ? "https://api.openai.com/v1"
-            : ApiBaseUrl.Trim().TrimEnd('/');
+        ApiBaseUrl = OpenAiEndpoint.NormalizeBaseUrl(ApiBaseUrl);
+        if (!OpenAiEndpoint.TryParse(ApiBaseUrl, out _))
+        {
+            ApiBaseUrl = OpenAiEndpoint.DefaultBaseUrl;
+        }
+
         InputDeviceName ??= string.Empty;
     }
 }

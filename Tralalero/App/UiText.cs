@@ -4,7 +4,7 @@ internal static class UiText
 {
     public const string WindowTitle = "Tralalero — Near-live dictation";
     public const string AppTitle = "🎙️ Tralalero";
-    public const string Subtitle = "Near-live dictation · powered by OpenAI";
+    public const string Subtitle = "Near-live dictation · powered by your transcription endpoint";
     public const string Ready = "🟢 Ready";
     public const string Listening = "🔴 Listening";
     public const string Finishing = "⏳ Finishing";
@@ -17,7 +17,7 @@ internal static class UiText
     public const string Clear = "🗑️ Clear";
     public const string Settings = "⚙️ Settings";
     public const string TranscriptPlaceholder = "Your transcript will appear here as you pause between phrases…";
-    public const string Privacy = "🔒 Audio is sent to OpenAI for transcription. Tralalero stores no audio.";
+    public const string Privacy = "🔒 Audio is sent to your configured endpoint. Tralalero stores no audio.";
     public const string HotkeyHint = "Press Ctrl+Alt+Space from any app";
     public const string KeyRequired = "🔑 Add your OpenAI API key to start dictating.";
     public const string ConsentRequired = "🔐 Accept the audio privacy notice to start dictating.";
@@ -27,6 +27,7 @@ internal static class UiText
     public const string LanguageAuto = "🌎 Auto-detect";
     public const string KeyReady = "🔑 Key ready";
     public const string KeyMissing = "🔑 Key missing";
+    public const string NoKeyRequired = "🔓 No key required";
     public const string OfflineNote = "⚠️ Needs internet";
     public const string Finished = "✅ Done";
     public const string Copied = "📋 Copied to clipboard";

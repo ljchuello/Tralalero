@@ -435,7 +435,8 @@ internal sealed class MainForm : Form
             $"Main form shown. Consent={_settings.ConsentAcceptedAtUtc.HasValue}, " +
             $"KeyPresent={!string.IsNullOrWhiteSpace(_apiKey)}, Modal={Modal}.");
 
-        if (!_settings.ConsentAcceptedAtUtc.HasValue || string.IsNullOrWhiteSpace(_apiKey))
+        var missingKey = string.IsNullOrWhiteSpace(_apiKey) && !IsCustomEndpoint;
+        if (!_settings.ConsentAcceptedAtUtc.HasValue || missingKey)
         {
             try
             {
@@ -504,7 +505,7 @@ internal sealed class MainForm : Form
         }
 
         var key = _keyStore.Load();
-        if (string.IsNullOrWhiteSpace(key))
+        if (string.IsNullOrWhiteSpace(key) && !IsCustomEndpoint)
         {
             _apiKey = null;
             UpdateReadiness();
@@ -838,17 +839,19 @@ internal sealed class MainForm : Form
 
     private void UpdateMeta()
     {
-        var language = string.Equals(_settings.Language, "auto", StringComparison.OrdinalIgnoreCase)
-            ? UiText.LanguageAuto
-            : UiText.LanguageSpanish;
-        var key = string.IsNullOrWhiteSpace(_apiKey) ? UiText.KeyMissing : UiText.KeyReady;
-        _metaLabel.Text = $"🧠 {_settings.Model} · {language} · {key} · ☁️ OpenAI";
-        _metaLabel.ForeColor = string.IsNullOrWhiteSpace(_apiKey) ? Theme.Warning : Theme.Muted;
+        var key = string.IsNullOrWhiteSpace(_apiKey)
+            ? IsCustomEndpoint ? UiText.NoKeyRequired : UiText.KeyMissing
+            : UiText.KeyReady;
+        var host = OpenAiEndpoint.GetHost(_settings.ApiBaseUrl);
+        _metaLabel.Text = $"🧠 {_settings.Model} · 🌐 {host} · {key}";
+        _metaLabel.ForeColor = string.IsNullOrWhiteSpace(_apiKey) && !IsCustomEndpoint
+            ? Theme.Warning
+            : Theme.Muted;
     }
 
     private void UpdateReadiness()
     {
-        var missingKey = string.IsNullOrWhiteSpace(_apiKey);
+        var missingKey = string.IsNullOrWhiteSpace(_apiKey) && !IsCustomEndpoint;
         var missingConsent = !_settings.ConsentAcceptedAtUtc.HasValue;
         _banner.Visible = missingKey || missingConsent;
         _bannerLabel.Text = missingConsent ? UiText.ConsentRequired : UiText.KeyRequired;
@@ -856,8 +859,11 @@ internal sealed class MainForm : Form
         UpdateMeta();
     }
 
+    private bool IsCustomEndpoint => !OpenAiEndpoint.IsOpenAi(_settings.ApiBaseUrl);
+
     private bool CanDictate() =>
-        !string.IsNullOrWhiteSpace(_apiKey) && _settings.ConsentAcceptedAtUtc.HasValue;
+        _settings.ConsentAcceptedAtUtc.HasValue &&
+        (!string.IsNullOrWhiteSpace(_apiKey) || IsCustomEndpoint);
 
     private void OpenSetup()
     {
@@ -883,6 +889,18 @@ internal sealed class MainForm : Form
             UpdateReadiness();
             UpdateMeta();
             _logger.Info("Setup completed.");
+
+            if (string.IsNullOrWhiteSpace(_apiKey) && !IsCustomEndpoint)
+            {
+                try
+                {
+                    BeginInvoke(new Action(OpenSettings));
+                }
+                catch (InvalidOperationException)
+                {
+                    // The form is closing.
+                }
+            }
         }
         catch (Exception ex)
         {

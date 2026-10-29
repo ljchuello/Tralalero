@@ -9,7 +9,8 @@
    ↓ (in memory)
 AudioRecorder → VAD → WAV phrase
    ↓ (HTTPS)
-☁️ OpenAI /v1/audio/transcriptions
+☁️ Configured endpoint /audio/transcriptions
+   (OpenAI by default; may be a local server)
    ↓ (JSON text)
 TranscriptAggregator → UI → 📋 clipboard / 💾 user save
 ```
@@ -18,7 +19,7 @@ TranscriptAggregator → UI → 📋 clipboard / 💾 user save
 
 | Data | Location | Retention |
 |---|---|---|
-| 🎙️ Microphone audio | RAM on your PC, then OpenAI | Tralalero stores no audio files. OpenAI retention is governed by your OpenAI agreement. |
+| 🎙️ Microphone audio | RAM on your PC, then the configured endpoint | Tralalero stores no audio files. OpenAI (or your custom endpoint) handles retention under its own policy. |
 | 📝 Transcript | RAM in Tralalero | Until you clear it, close the app, or save it. |
 | 🔑 API key | `%APPDATA%\Tralalero\credentials.bin` | Encrypted with Windows DPAPI for your Windows user. |
 | ⚙️ Settings | `%APPDATA%\Tralalero\settings.json` | Until you delete the file. No API key is stored here. |
@@ -32,10 +33,11 @@ TranscriptAggregator → UI → 📋 clipboard / 💾 user save
 - Audio is held in memory while recording.
 - Only detected phrases are sent; silence is not uploaded.
 - Tralalero does not write WAV files to disk.
-- Network requests use HTTPS to `api.openai.com` (or the advanced `ApiBaseUrl` override).
+- Network requests go to the configured endpoint. HTTPS is required for remote hosts; HTTP is allowed only for localhost/private LAN.
 - If you save a transcript, only text is written, not audio.
+- When the endpoint host changes, Tralalero clears the previous API key so it cannot be sent to the new host.
 
-> ⚠️ **Sensitive audio:** if you dictate confidential information, remember that the audio is processed by OpenAI. Review your organization's policies and OpenAI data controls before use.
+> ⚠️ **Sensitive audio:** if you dictate confidential information, remember that the audio is processed by your configured endpoint. Review your organization's policies and the endpoint's data controls before use.
 
 ## 🔑 API key
 
@@ -74,10 +76,10 @@ Logs live in `%LOCALAPPDATA%\Tralalero\logs` and are pruned after 14 days. You c
 
 ## 🌐 Network
 
-Tralalero makes network requests only to the configured OpenAI-compatible transcription base URL:
+Tralalero makes network requests only to the configured transcription base URL:
 
-- `GET /v1/models` for key validation,
-- `POST /v1/audio/transcriptions` for phrases.
+- `GET /models` for key validation (best-effort on custom endpoints),
+- `POST /audio/transcriptions` for phrases.
 
 There is no Tralalero account, sync service, analytics endpoint, or update checker.
 
@@ -106,7 +108,9 @@ Tralalero does **not** protect against:
 - ❌ malware running as your Windows user (it can read the key while the app runs, or capture audio),
 - ❌ a compromised OpenAI account/API key,
 - ❌ screen recording or clipboard monitoring by other apps,
-- ❌ a malicious custom `ApiBaseUrl` proxy configured by someone with access to your settings.
+- ❌ a malicious custom endpoint configured by someone with access to your settings.
+- ❌ a custom endpoint's own logging, retention, or security practices.
+- ❌ a key that is re-entered for a host you do not trust.
 
 Use a dedicated OpenAI project key, rotate it if exposed, and keep Windows updated.
 
