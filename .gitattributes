@@ -61,3 +61,21 @@
 #*.PDF   diff=astextplain
 #*.rtf   diff=astextplain
 #*.RTF   diff=astextplain
+
+# Tralalero: keep source and docs LF for reproducible formatting
+*.cs text eol=lf
+*.csproj text eol=lf
+*.props text eol=lf
+*.slnx text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.json text eol=lf
+*.ps1 text eol=lf
+*.manifest text eol=lf
+.editorconfig text eol=lf
+.gitignore text eol=lf
+LICENSE text eol=lf
+*.ico binary
+*.png binary
+.gitattributes text eol=lf

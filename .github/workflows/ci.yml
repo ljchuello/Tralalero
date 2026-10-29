@@ -1,0 +1,43 @@
+name: ci
+
+on:
+  push:
+    branches: ["main", "master"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: 🧪 Build & test
+    runs-on: windows-latest
+
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+
+      - name: 🛠️ Set up .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: 📦 Restore
+        run: dotnet restore Tralalero.slnx
+
+      - name: 🎨 Verify formatting
+        run: dotnet format Tralalero.slnx --verify-no-changes --no-restore
+
+      - name: 🏗️ Build
+        run: dotnet build Tralalero.slnx -c Release --no-restore
+
+      - name: 🧪 Test
+        run: dotnet test Tralalero.slnx -c Release --no-build --logger "trx;LogFileName=test-results.trx"
+
+      - name: 📤 Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: "**/TestResults/*.trx"
+          if-no-files-found: ignore

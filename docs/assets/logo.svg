@@ -1,0 +1,15 @@
+<svg width="256" height="256" viewBox="0 0 256 256" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title">
+  <title id="title">Tralalero microphone logo</title>
+  <defs>
+    <linearGradient id="bg" x1="24" y1="20" x2="236" y2="240" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#4F46E5"/>
+      <stop offset="1" stop-color="#0EA5E9"/>
+    </linearGradient>
+  </defs>
+  <rect x="10" y="10" width="236" height="236" rx="60" fill="url(#bg)"/>
+  <rect x="107" y="46" width="42" height="96" rx="21" fill="white"/>
+  <path d="M82 104C82 129.405 102.595 150 128 150C153.405 150 174 129.405 174 104" stroke="white" stroke-width="12" stroke-linecap="round"/>
+  <path d="M128 150V184" stroke="white" stroke-width="12" stroke-linecap="round"/>
+  <path d="M102 184H154" stroke="white" stroke-width="12" stroke-linecap="round"/>
+  <path d="M54 218C72 204 88 204 104 218C120 232 136 232 152 218C168 204 184 204 202 218" stroke="#BAE6FD" stroke-width="6" stroke-linecap="round"/>
+</svg>
